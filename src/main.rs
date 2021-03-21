@@ -23,18 +23,21 @@ use stm32f4xx_hal::serial::config::Config;
 use stm32f4xx_hal::stm32;
 use panic_probe as _;
 use stm32f4xx_hal::stm32::DMA1;
-use rtt_target::{rtt_init_default, rprintln};
+use rtt_target::{rtt_init_print, rprintln};
 
 type Uart4 = serial::Serial<stm32::UART4, Stream4<DMA1>, Stream2<DMA1>, Channel4>;
 
 #[task]
 async fn run(mut con: Uart4) {
 
-    Timer::after(Duration::from_secs(1)).await;
-    let buf = singleton!(: [u8; 30] = [0xF0; 30]).unwrap();
+    Timer::after(Duration::from_secs(2)).await;
+    let buf = singleton!(: [u8; 30] = [0x00; 30]).expect("failed to create singleton");
 
-    buf[5] = 0x01;
-    con.send(buf).await.unwrap();
+    // buf[5] = 0x01;
+    // con.send(buf).await.unwrap();
+    rprintln!("Attempting to receive...");
+    con.receive(buf).await;
+    rprintln!("buffer := {:?}", buf);
     // let foo: &str = "foobar";
     // con.send(foo.as_bytes()).await.expect("failed to send bytes")
 }
@@ -49,8 +52,7 @@ static RTC_ALARM: Forever<rtc::Alarm<stm32::TIM12>> =Forever::new();
 
 #[entry]
 fn main() -> ! {
-    rtt_init_default!();
-    rprintln!("hello, world!");
+
     let dp = stm32::Peripherals::take().unwrap();
     #[allow(unused_variables)]
     let cp = cortex_m::peripheral::Peripherals::take().unwrap();
@@ -61,6 +63,8 @@ fn main() -> ! {
         w.dbg_stop().set_bit()
     });
     dp.RCC.ahb1enr.modify(|_, w| w.dma1en().enabled());
+
+
     let rcc = dp.RCC.constrain();
 
     // https://gist.github.com/thalesfragoso/a07340c5df6eee3b04c42fdc69ecdcb1
@@ -68,10 +72,13 @@ fn main() -> ! {
 
     let clocks = rcc
         .cfgr
-        .use_hse(16.mhz())
-        .sysclk(48.mhz())
-        .pclk1(24.mhz())
+        // .use_hse(16.mhz())
+        // .sysclk(48.mhz())
+        // .pclk1(24.mhz())
         .freeze();
+
+    rtt_init_print!();
+    rprintln!("hello, world!");
 
     let streams = StreamsTuple::new(dp.DMA1);
 
