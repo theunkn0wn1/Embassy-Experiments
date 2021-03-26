@@ -5,57 +5,77 @@
 #![feature(impl_trait_in_bindings)]
 #![feature(type_alias_impl_trait)]
 
-
 #[allow(unused_imports)]
 use cortex_m::singleton;
 
 use cortex_m_rt::entry;
 use embassy::executor::{task, Executor};
-use embassy::traits::uart::Uart;
-use embassy::util::Forever;
+use embassy::time::{Duration, Timer, Instant};
+use embassy::traits::uart::{Uart, IdleUart};
+use embassy::util::{Forever, InterruptFuture, CriticalSectionMutex};
 use embassy_stm32f4::interrupt;
-use embassy_stm32f4::serial;
 use embassy_stm32f4::rtc;
-use embassy::time::{Duration, Timer};
-use stm32f4xx_hal::dma::{StreamsTuple, Stream4, Stream2, Channel4};
+use embassy_stm32f4::serial;
+use panic_probe as _;
+use rtt_target::{rprintln, rtt_init_print};
+use stm32f4xx_hal::dma::{Channel4, Stream2, Stream4, StreamsTuple};
 use stm32f4xx_hal::prelude::*;
 use stm32f4xx_hal::serial::config::Config;
 use stm32f4xx_hal::stm32;
-use panic_probe as _;
 use stm32f4xx_hal::stm32::DMA1;
-use rtt_target::{rtt_init_print, rprintln};
+use stm32f4xx_hal::crc32::Crc32;
 
 type Uart4 = serial::Serial<stm32::UART4, Stream4<DMA1>, Stream2<DMA1>, Channel4>;
 
 #[task]
-async fn run(mut con: Uart4) {
+async fn uart_worker(mut con: Uart4, mut crc32: Crc32) {
+    // note: this needs to be a singleton otherwise DMA won't work correctly.
+    let buf = singleton!(: [u8; 30] = [0xFF; 30]).expect("failed to create singleton");
 
-    Timer::after(Duration::from_secs(2)).await;
-    let buf = singleton!(: [u8; 30] = [0x00; 30]).expect("failed to create singleton");
+    loop {
+        crc32.init();
 
-    // buf[5] = 0x01;
-    // con.send(buf).await.unwrap();
-    rprintln!("Attempting to receive...");
-    con.receive(buf).await;
-    rprintln!("buffer := {:?}", buf);
-    // let foo: &str = "foobar";
-    // con.send(foo.as_bytes()).await.expect("failed to send bytes")
+        rprintln!("Attempting to receive...");
+        let total_read = con.receive_until_idle(buf).await.expect("failed to receive");
+
+        let populated_slice = &buf[..total_read];
+        let checksum = crc32.update_bytes(populated_slice);
+        rprintln!("buffer ({:?})[{}] := {:?}",total_read, checksum,  populated_slice);
+        rprintln!("writing buffer...");
+        con.send(populated_slice).await.unwrap();
+    }
 }
 
+#[task]
+async fn validate_crc() {}
+
+#[task]
+/// Task that ticks periodically
+async fn tick_periodic() -> ! {
+    loop {
+        // rprintln!("tick!");
+        // async sleep primitive
+        Timer::after(Duration::from_millis(500)).await;
+    }
+}
+
+/* embassy boilerplate */
 /// Embassy runtime
 static EXECUTOR: Forever<Executor> = Forever::new();
 /// Clock to use for Real Time Clock stuff.
 /// Note: we can't use the actual stm32::RTC peripheral as doesn;t have the required accuracy.
 static RTC: Forever<rtc::RTC<stm32::TIM12>> = Forever::new();
 /// Alarm object for the RTC.
-static RTC_ALARM: Forever<rtc::Alarm<stm32::TIM12>> =Forever::new();
+static RTC_ALARM: Forever<rtc::Alarm<stm32::TIM12>> = Forever::new();
 
 #[entry]
 fn main() -> ! {
+    rtt_init_print!();
+    rprintln!("hello, world!");
 
     let dp = stm32::Peripherals::take().unwrap();
     #[allow(unused_variables)]
-    let cp = cortex_m::peripheral::Peripherals::take().unwrap();
+        let cp = cortex_m::peripheral::Peripherals::take().unwrap();
 
     dp.DBGMCU.cr.modify(|_, w| {
         w.dbg_sleep().set_bit();
@@ -63,7 +83,6 @@ fn main() -> ! {
         w.dbg_stop().set_bit()
     });
     dp.RCC.ahb1enr.modify(|_, w| w.dma1en().enabled());
-
 
     let rcc = dp.RCC.constrain();
 
@@ -77,12 +96,11 @@ fn main() -> ! {
         // .pclk1(24.mhz())
         .freeze();
 
-    rtt_init_print!();
-    rprintln!("hello, world!");
-
     let streams = StreamsTuple::new(dp.DMA1);
 
-
+    /*
+    serial initialization
+    */
     let serial = unsafe {
         serial::Serial::new(
             dp.UART4,
@@ -100,12 +118,21 @@ fn main() -> ! {
     };
 
     /*
+    Init CRC
+     */
+    let mut crc32 = stm32f4xx_hal::crc32::Crc32::new(dp.CRC);
+
+    /*
         Embassy config stuff.
         Borrowed from https://github.com/embassy-rs/embassy/blob/master/embassy-stm32f4-examples/src/bin/rtc_async.rs
     */
-    let rtc = RTC.put(rtc::RTC::new(dp.TIM12, interrupt::take!(TIM8_BRK_TIM12), clocks));
+    let rtc = RTC.put(rtc::RTC::new(
+        dp.TIM12,
+        interrupt::take!(TIM8_BRK_TIM12),
+        clocks,
+    ));
     rtc.start();
-    unsafe {embassy::time::set_clock(rtc)};
+    unsafe { embassy::time::set_clock(rtc) };
     let alarm = RTC_ALARM.put(rtc.alarm1());
     let executor = EXECUTOR.put(Executor::new());
     executor.set_alarm(alarm);
@@ -114,6 +141,13 @@ fn main() -> ! {
      */
 
     executor.run(|spawner| {
-        spawner.spawn(run(serial)).expect("failed to spawn `run`");
+        // spawn periodic task
+        spawner
+            .spawn(tick_periodic())
+            .expect("failed to spawn `tick_periodic`");
+        // spawn UART worker
+        spawner
+            .spawn(uart_worker(serial, crc32))
+            .expect("failed to spawn `run`");
     });
 }
