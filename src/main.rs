@@ -60,7 +60,7 @@ async fn uart_worker(mut con: Uart4, mut crc32: Crc32) {
 
 /// Validates a slice of bytes.
 /// Note:: there must be at least 5 bytes.
-/// The last 4 bytes are the sender's CRC32-Ethernet checksum, in LE encoding.
+/// The last 4 bytes are the sender's CRC32-Ethernet checksum, in BE encoding.
 /// The payload should be 4 byte alligned, otherwise the last 4 byte chunk's MSB will be padded
 /// with zeros (hardware limitation) to ensure alignment.
 fn validate_crc(payload: &[u8], crc32: &mut Crc32) -> Result<bool, ()> {
@@ -81,37 +81,43 @@ fn validate_crc(payload: &[u8], crc32: &mut Crc32) -> Result<bool, ()> {
 
     // Sigh. why can't the hardware engineering world agree to one or the other?
     // this entire mess is caused by BE vs LE.
+
+    // chunk exactly one word's worth of bytes, producing an iterator.
     let word_chunks = payload_bytes.chunks_exact(4);
+    // We also need to know if there was a remainder.
     let remainder = word_chunks.remainder();
+
+    // This has to be mut since we later iterate over the words to feed them to CRC.
     let mut device_checksum = 0;
 
     // For each chunk, parse it as a BE word, then convert the internal bytes to LE
     // This is necessary because the native hardware blindly reinterprets bytes as LE
     let words = word_chunks
         .map(|chunk| u32::from_be_bytes(chunk.try_into().unwrap()))
+        // convert the underlying memory to LE, since these get reinterpret-cast'ed by the HAL.
+        // Note: this may be a no-op since we are already on LE hardware...
         .map(|word| word.to_le());
+    // Now feed each word into the CRC engine
     for word in words {
         rprintln!("[DEBUG] feeding word {:x}", word);
         device_checksum = crc32.update(&[word]);
     }
+    // check but disregard the remainder.
     if !remainder.is_empty(){
         rprintln!("[warn] non-empty remainder {:?}", remainder);
     }
 
-
-    crc32.init();
     rprintln!("[DEBUG]: payload bytes :: {:?} sender_checksum_bytes:: {:?}", payload_bytes, sender_checksum_bytes);
     match sender_checksum_bytes.try_into() {
         Ok(slice) => {
             let senders_checksum = u32::from_be_bytes(slice);
             rprintln!("[DEBUG]: device checksum :: {} sender checksum :: {}", device_checksum, senders_checksum);
             rprintln!("[DEBUG]: device checksum :: {:x}(le) :: {:x}(be)", device_checksum.to_le(), senders_checksum.to_be());
-            rprintln!("[DEBUG]: device checksum as le bytes: {:?} BE bytes: {:?}", device_checksum.to_le_bytes(), device_checksum.to_be_bytes());
             Ok(device_checksum == senders_checksum)
         }
         Err(_) => {
             rprintln!("[ERROR] Error processing sender's checksum");
-            Ok(false)
+            Err(())
         }
     }
 }
