@@ -21,29 +21,31 @@ fn main() -> ! {
         // Set up the system clock.
         let mut rcc = dp.RCC.constrain();
 
-        // NOTE(unsafe) this reference will only be used for atomic writes with no side effects.
-        // let rcc_raw = unsafe { &(*stm32::RCC::ptr()) };
-        // Enable the CRC clock, see  https://github.com/stm32-rs/stm32f4xx-hal/issues/281
-        // rcc_raw.ahb1enr.modify(|_, w| {w.crcen().set_bit()});
+
 
         let mut clocks = rcc.cfgr.freeze();
 
         // Initialize the CRC32 peripheral
         let mut crc = crc32::Crc32::new(dp.CRC);
+        // // NOTE(unsafe) this reference will only be used for atomic writes with no side effects.
+        // let rcc_raw = unsafe { &(*stm32::RCC::ptr()) };
+        // // Enable the CRC clock, see  https://github.com/stm32-rs/stm32f4xx-hal/issues/281
+        // rcc_raw.ahb1enr.modify(|_, w| {w.crcen().set_bit()});
+
         // feed the CRC peripheral bytes from a buffer that IS 4-byte alligned
         let result = crc.update_bytes(&BUFFER);
         // emit the result to rtt
-        rprintln!("crc32 of {:?} = {}", BUFFER, result);
+        rprintln!("crc32 of {:?}(raw BUFFER1) = {}", BUFFER, result);
         crc.init();
         let z = u32::from_be_bytes(BUFFER);
         let result = crc.update(&[z]);
-        rprintln!("crc32 of {:?} = {}", &[z], result);
+        rprintln!("crc32 of {:?}(from_be_btes) = {}", &[z], result);
 
 
         // Ok, lets see if we can feed it a U32 and have it make any more sense.
         crc.init();
         let result2 = crc.update(&BUFFER_2);
-        rprintln!("crc32 of {:?} = {}", BUFFER_2, result2);
+        rprintln!("crc32 of {:?} (BUFFER2)= {}", BUFFER_2, result2);
 
     }
 

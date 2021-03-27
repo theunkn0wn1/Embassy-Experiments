@@ -72,18 +72,39 @@ fn validate_crc(payload: &[u8], crc32: &mut Crc32) -> Result<bool, ()> {
     crc32.init();
     // Force synchronization.
     cortex_m::asm::dsb();
+    rprintln!("raw payload := {:?}", payload);
 
     // split off the last 4 bytes, as that will be the sender's checksum.
     let (payload_bytes, sender_checksum_bytes) = payload.split_at(payload.len() - 4);
-    let payload_u32 = u32::from_le_bytes(payload_bytes.try_into().unwrap());
+    // let payload_u32 = u32::from_be_bytes(payload_bytes.try_into().unwrap());
+    // rprintln!("CRC of [{}] (from_bytes_be) := {}", payload_u32, crc32.update(&[payload_u32]));
+
+    // Sigh. why can't the hardware engineering world agree to one or the other?
+    // this entire mess is caused by BE vs LE.
+    let word_chunks = payload_bytes.chunks_exact(4);
+    let remainder = word_chunks.remainder();
+    let mut device_checksum = 0;
+
+    // For each chunk, parse it as a BE word, then convert the internal bytes to LE
+    // This is necessary because the native hardware blindly reinterprets bytes as LE
+    let words = word_chunks
+        .map(|chunk| u32::from_be_bytes(chunk.try_into().unwrap()))
+        .map(|word| word.to_le());
+    for word in words {
+        rprintln!("[DEBUG] feeding word {:x}", word);
+        device_checksum = crc32.update(&[word]);
+    }
+    if !remainder.is_empty(){
+        rprintln!("[warn] non-empty remainder {:?}", remainder);
+    }
 
 
+    crc32.init();
     rprintln!("[DEBUG]: payload bytes :: {:?} sender_checksum_bytes:: {:?}", payload_bytes, sender_checksum_bytes);
     match sender_checksum_bytes.try_into() {
         Ok(slice) => {
-            let senders_checksum = u32::from_le_bytes(slice);
-            let device_checksum = crc32.update_bytes(payload_bytes);
-            rprintln!("[DEBUG]: device checksum :: {:x} sender checksum :: {:x}", device_checksum, senders_checksum);
+            let senders_checksum = u32::from_be_bytes(slice);
+            rprintln!("[DEBUG]: device checksum :: {} sender checksum :: {}", device_checksum, senders_checksum);
             rprintln!("[DEBUG]: device checksum :: {:x}(le) :: {:x}(be)", device_checksum.to_le(), senders_checksum.to_be());
             rprintln!("[DEBUG]: device checksum as le bytes: {:?} BE bytes: {:?}", device_checksum.to_le_bytes(), device_checksum.to_be_bytes());
             Ok(device_checksum == senders_checksum)
