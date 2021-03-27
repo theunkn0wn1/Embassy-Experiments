@@ -8,11 +8,9 @@
 #[allow(unused_imports)]
 use cortex_m::singleton;
 
-use cortex_m_rt::entry;
-use embassy::executor::{task, Executor, Spawner};
+use embassy::executor::{task, Spawner};
 use embassy::time::{Duration, Timer};
 use embassy::traits::uart::{Uart, IdleUart};
-use embassy::util::{Forever, InterruptFuture, CriticalSectionMutex};
 use embassy_stm32f4::interrupt;
 use embassy_stm32f4::rtc;
 use embassy_stm32f4::serial;
@@ -104,7 +102,7 @@ fn validate_crc(payload: &[u8], crc32: &mut Crc32) -> Result<bool, ()> {
         device_checksum = crc32.update(&[word]);
     }
     // check but disregard the remainder.
-    if !remainder.is_empty(){
+    if !remainder.is_empty() {
         rprintln!("[warn] non-empty remainder {:?}", remainder);
     }
 
@@ -134,32 +132,22 @@ async fn tick_periodic() -> ! {
 }
 
 #[embassy::main]
-async fn main(spawner: Spawner){
+async fn main(spawner: Spawner) {
     rtt_init_print!();
     rprintln!("hello, world!");
 
-    let dp = stm32::Peripherals::take().unwrap();
-    #[allow(unused_variables)]
-        let cp = cortex_m::peripheral::Peripherals::take().unwrap();
+    let (dp, clocks) = embassy_stm32::Peripherals::take().expect("failed to take peripherals");
 
+    // workaround for WFI errata.
     dp.DBGMCU.cr.modify(|_, w| {
         w.dbg_sleep().set_bit();
         w.dbg_standby().set_bit();
         w.dbg_stop().set_bit()
     });
-    dp.RCC.ahb1enr.modify(|_, w| w.dma1en().enabled());
-
-    let rcc = dp.RCC.constrain();
 
     // https://gist.github.com/thalesfragoso/a07340c5df6eee3b04c42fdc69ecdcb1
     let gpioc = dp.GPIOC.split();
 
-    let clocks = rcc
-        .cfgr
-        // .use_hse(16.mhz())
-        // .sysclk(48.mhz())
-        // .pclk1(24.mhz())
-        .freeze();
 
     let streams = StreamsTuple::new(dp.DMA1);
 
@@ -188,15 +176,19 @@ async fn main(spawner: Spawner){
     let crc32 = stm32f4xx_hal::crc32::Crc32::new(dp.CRC);
 
     /*
-        Embassy config stuff.
-        Borrowed from https://github.com/embassy-rs/embassy/blob/master/embassy-stm32f4-examples/src/bin/rtc_async.rs
-    */
-        // spawn periodic task
-        spawner
-            .spawn(tick_periodic())
-            .expect("failed to spawn `tick_periodic`");
-        // spawn UART worker
-        spawner
-            .spawn(uart_worker(serial, crc32))
-            .expect("failed to spawn `run`");
+    spawn worker tasks
+     */
+    // spawn periodic task
+    spawner
+        .spawn(tick_periodic())
+        .expect("failed to spawn `tick_periodic`");
+    // spawn UART worker
+    spawner
+        .spawn(uart_worker(serial, crc32))
+        .expect("failed to spawn `run`");
+}
+
+#[cfg(test)]
+mod test {
+
 }

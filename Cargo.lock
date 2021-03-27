@@ -203,7 +203,7 @@ checksum = "c816f778ec2147f95990a606795fe9dcc82781bcd98e222675c4103c2d250ea1"
 [[package]]
 name = "embassy"
 version = "0.1.0"
-source = "git+https://github.com/xoviat/embassy.git?branch=proc-macro#2ce9827776e30f8bbc8034f94a3f484f17af8194"
+source = "git+https://github.com/xoviat/embassy.git?branch=proc-macro#8633d7f588fb68820e5282ba006b4668c398836e"
 dependencies = [
  "atomic-polyfill",
  "cortex-m 0.7.2",
@@ -216,7 +216,7 @@ dependencies = [
 [[package]]
 name = "embassy-macros"
 version = "0.1.0"
-source = "git+https://github.com/xoviat/embassy.git?branch=proc-macro#2ce9827776e30f8bbc8034f94a3f484f17af8194"
+source = "git+https://github.com/xoviat/embassy.git?branch=proc-macro#8633d7f588fb68820e5282ba006b4668c398836e"
 dependencies = [
  "darling",
  "quote",
@@ -226,7 +226,7 @@ dependencies = [
 [[package]]
 name = "embassy-stm32"
 version = "0.1.0"
-source = "git+https://github.com/xoviat/embassy.git?branch=proc-macro#2ce9827776e30f8bbc8034f94a3f484f17af8194"
+source = "git+https://github.com/xoviat/embassy.git?branch=proc-macro#8633d7f588fb68820e5282ba006b4668c398836e"
 dependencies = [
  "bxcan",
  "cortex-m 0.7.2",
@@ -235,14 +235,14 @@ dependencies = [
  "embassy-macros",
  "embedded-dma",
  "embedded-hal",
- "nb 0.1.3",
+ "nb 1.0.0",
  "stm32f4xx-hal",
 ]
 
 [[package]]
 name = "embassy-stm32f4"
 version = "0.1.0"
-source = "git+https://github.com/xoviat/embassy.git?branch=proc-macro#2ce9827776e30f8bbc8034f94a3f484f17af8194"
+source = "git+https://github.com/xoviat/embassy.git?branch=proc-macro#8633d7f588fb68820e5282ba006b4668c398836e"
 dependencies = [
  "bxcan",
  "cortex-m 0.7.2",
@@ -252,14 +252,14 @@ dependencies = [
  "embedded-dma",
  "embedded-hal",
  "futures",
- "nb 0.1.3",
+ "nb 1.0.0",
  "stm32f4xx-hal",
 ]
 
 [[package]]
 name = "embassy-traits"
 version = "0.1.0"
-source = "git+https://github.com/xoviat/embassy.git?branch=proc-macro#2ce9827776e30f8bbc8034f94a3f484f17af8194"
+source = "git+https://github.com/xoviat/embassy.git?branch=proc-macro#8633d7f588fb68820e5282ba006b4668c398836e"
 dependencies = [
  "embedded-hal",
 ]
