@@ -10,7 +10,7 @@ use cortex_m::singleton;
 
 use cortex_m_rt::entry;
 use embassy::executor::{task, Executor};
-use embassy::time::{Duration, Timer, Instant};
+use embassy::time::{Duration, Timer};
 use embassy::traits::uart::{Uart, IdleUart};
 use embassy::util::{Forever, InterruptFuture, CriticalSectionMutex};
 use embassy_stm32f4::interrupt;
@@ -24,6 +24,7 @@ use stm32f4xx_hal::serial::config::Config;
 use stm32f4xx_hal::stm32;
 use stm32f4xx_hal::stm32::DMA1;
 use stm32f4xx_hal::crc32::Crc32;
+use core::convert::TryInto;
 
 type Uart4 = serial::Serial<stm32::UART4, Stream4<DMA1>, Stream2<DMA1>, Channel4>;
 
@@ -43,11 +44,56 @@ async fn uart_worker(mut con: Uart4, mut crc32: Crc32) {
         rprintln!("buffer ({:?})[{}] := {:?}",total_read, checksum,  populated_slice);
         rprintln!("writing buffer...");
         con.send(populated_slice).await.unwrap();
+        match validate_crc(populated_slice, &mut crc32) {
+            Ok(valid) => {
+                rprintln!("data validated :: {}", match valid {
+                true => {"true"}
+                false => {"false"}
+                });
+            }
+            Err(_) => {
+                rprintln!("Validation error.")
+            }
+        }
     }
 }
 
-#[task]
-async fn validate_crc() {}
+/// Validates a slice of bytes.
+/// Note:: there must be at least 5 bytes.
+/// The last 4 bytes are the sender's CRC32-Ethernet checksum, in LE encoding.
+/// The payload should be 4 byte alligned, otherwise the last 4 byte chunk's MSB will be padded
+/// with zeros (hardware limitation) to ensure alignment.
+fn validate_crc(payload: &[u8], crc32: &mut Crc32) -> Result<bool, ()> {
+    // payload must contain at least 1 data byte and 4 LE checksum bytes
+    if payload.len() < 5 {
+        return Err(());
+    };
+
+    crc32.init();
+    // Force synchronization.
+    cortex_m::asm::dsb();
+
+    // split off the last 4 bytes, as that will be the sender's checksum.
+    let (payload_bytes, sender_checksum_bytes) = payload.split_at(payload.len() - 4);
+    let payload_u32 = u32::from_le_bytes(payload_bytes.try_into().unwrap());
+
+
+    rprintln!("[DEBUG]: payload bytes :: {:?} sender_checksum_bytes:: {:?}", payload_bytes, sender_checksum_bytes);
+    match sender_checksum_bytes.try_into() {
+        Ok(slice) => {
+            let senders_checksum = u32::from_le_bytes(slice);
+            let device_checksum = crc32.update_bytes(payload_bytes);
+            rprintln!("[DEBUG]: device checksum :: {:x} sender checksum :: {:x}", device_checksum, senders_checksum);
+            rprintln!("[DEBUG]: device checksum :: {:x}(le) :: {:x}(be)", device_checksum.to_le(), senders_checksum.to_be());
+            rprintln!("[DEBUG]: device checksum as le bytes: {:?} BE bytes: {:?}", device_checksum.to_le_bytes(), device_checksum.to_be_bytes());
+            Ok(device_checksum == senders_checksum)
+        }
+        Err(_) => {
+            rprintln!("[ERROR] Error processing sender's checksum");
+            Ok(false)
+        }
+    }
+}
 
 #[task]
 /// Task that ticks periodically
@@ -120,7 +166,7 @@ fn main() -> ! {
     /*
     Init CRC
      */
-    let mut crc32 = stm32f4xx_hal::crc32::Crc32::new(dp.CRC);
+    let crc32 = stm32f4xx_hal::crc32::Crc32::new(dp.CRC);
 
     /*
         Embassy config stuff.
