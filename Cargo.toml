@@ -32,18 +32,32 @@ features = ["async-await"]
 
 [dependencies.embassy]
 version = "0.1.0"
-git = "https://github.com/embassy-rs/embassy.git"
+git = "https://github.com/xoviat/embassy.git"
+branch = "proc-macro"
+#git = "https://github.com/embassy-rs/embassy.git"
 #path = "/home/orion/projects/embassy/embassy"
 
 
 [dependencies.embassy-traits]
 version = "0.1.0"
-git = "https://github.com/embassy-rs/embassy.git"
+git = "https://github.com/xoviat/embassy.git"
+branch = "proc-macro"
+#git = "https://github.com/embassy-rs/embassy.git"
 #path = "/home/orion/projects/embassy/embassy-traits"
 
 
 [dependencies.embassy-stm32f4]
 version = "*"
-git = "https://github.com/embassy-rs/embassy.git"
+git = "https://github.com/xoviat/embassy.git"
+branch = "proc-macro"
+#git = "https://github.com/embassy-rs/embassy.git"
 #path = "/home/orion/projects/embassy/embassy-stm32f4"
+features = ["stm32f446"]
+
+[dependencies.embassy-stm32]
+version = "*"
+git = "https://github.com/xoviat/embassy.git"
+branch = "proc-macro"
+#git = "https://github.com/embassy-rs/embassy.git"
+#path = "/home/orion/projects/embassy/embassy-stm32"
 features = ["stm32f446"]

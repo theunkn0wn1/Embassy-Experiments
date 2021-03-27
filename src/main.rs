@@ -9,13 +9,14 @@
 use cortex_m::singleton;
 
 use cortex_m_rt::entry;
-use embassy::executor::{task, Executor};
+use embassy::executor::{task, Executor, Spawner};
 use embassy::time::{Duration, Timer};
 use embassy::traits::uart::{Uart, IdleUart};
 use embassy::util::{Forever, InterruptFuture, CriticalSectionMutex};
 use embassy_stm32f4::interrupt;
 use embassy_stm32f4::rtc;
 use embassy_stm32f4::serial;
+use embassy_stm32;
 use panic_probe as _;
 use rtt_target::{rprintln, rtt_init_print};
 use stm32f4xx_hal::dma::{Channel4, Stream2, Stream4, StreamsTuple};
@@ -132,17 +133,8 @@ async fn tick_periodic() -> ! {
     }
 }
 
-/* embassy boilerplate */
-/// Embassy runtime
-static EXECUTOR: Forever<Executor> = Forever::new();
-/// Clock to use for Real Time Clock stuff.
-/// Note: we can't use the actual stm32::RTC peripheral as doesn;t have the required accuracy.
-static RTC: Forever<rtc::RTC<stm32::TIM12>> = Forever::new();
-/// Alarm object for the RTC.
-static RTC_ALARM: Forever<rtc::Alarm<stm32::TIM12>> = Forever::new();
-
-#[entry]
-fn main() -> ! {
+#[embassy::main]
+async fn main(spawner: Spawner){
     rtt_init_print!();
     rprintln!("hello, world!");
 
@@ -199,21 +191,6 @@ fn main() -> ! {
         Embassy config stuff.
         Borrowed from https://github.com/embassy-rs/embassy/blob/master/embassy-stm32f4-examples/src/bin/rtc_async.rs
     */
-    let rtc = RTC.put(rtc::RTC::new(
-        dp.TIM12,
-        interrupt::take!(TIM8_BRK_TIM12),
-        clocks,
-    ));
-    rtc.start();
-    unsafe { embassy::time::set_clock(rtc) };
-    let alarm = RTC_ALARM.put(rtc.alarm1());
-    let executor = EXECUTOR.put(Executor::new());
-    executor.set_alarm(alarm);
-    /*
-    spawn runtime stuff
-     */
-
-    executor.run(|spawner| {
         // spawn periodic task
         spawner
             .spawn(tick_periodic())
@@ -222,5 +199,4 @@ fn main() -> ! {
         spawner
             .spawn(uart_worker(serial, crc32))
             .expect("failed to spawn `run`");
-    });
 }
