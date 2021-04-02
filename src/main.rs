@@ -8,13 +8,13 @@
 #[allow(unused_imports)]
 use cortex_m::singleton;
 
-use embassy::executor::{task, Spawner};
+use embassy::{task, executor::Spawner};
 use embassy::time::{Duration, Timer};
-use embassy::traits::uart::{Uart, IdleUart};
-use embassy_stm32f4::interrupt;
-use embassy_stm32f4::rtc;
-use embassy_stm32f4::serial;
+use embassy::traits::uart::{ReadUntilIdle, Write};
+use embassy_stm32::interrupt;
+use embassy_stm32::serial;
 use embassy_stm32;
+use futures::pin_mut;
 use panic_probe as _;
 use rtt_target::{rprintln, rtt_init_print};
 use stm32f4xx_hal::dma::{Channel4, Stream2, Stream4, StreamsTuple};
@@ -28,21 +28,27 @@ use core::convert::TryInto;
 type Uart4 = serial::Serial<stm32::UART4, Stream4<DMA1>, Stream2<DMA1>, Channel4>;
 
 #[task]
-async fn uart_worker(mut con: Uart4, mut crc32: Crc32) {
+async fn uart_worker(con: Uart4, mut crc32: Crc32) {
+    pin_mut!(con);
     // note: this needs to be a singleton otherwise DMA won't work correctly.
-    let buf = singleton!(: [u8; 30] = [0xFF; 30]).expect("failed to create singleton");
+    let buf = singleton!(: [u8; 256] = [0xFF; 256]).expect("failed to create singleton");
 
     loop {
         crc32.init();
+        buf.fill(0xFF);
+
 
         rprintln!("Attempting to receive...");
-        let total_read = con.receive_until_idle(buf).await.expect("failed to receive");
+        let total_read = con.as_mut().read_until_idle(buf).await.expect("failed to receive");
 
-        let populated_slice = &buf[..total_read];
+        let populated_slice = &mut buf[..total_read];
+
+
+
         let checksum = crc32.update_bytes(populated_slice);
         rprintln!("buffer ({:?})[{}] := {:?}",total_read, checksum,  populated_slice);
         rprintln!("writing buffer...");
-        con.send(populated_slice).await.unwrap();
+        con.as_mut().write(populated_slice).await.unwrap();
         match validate_crc(populated_slice, &mut crc32) {
             Ok(valid) => {
                 rprintln!("data validated :: {}", match valid {
@@ -165,7 +171,7 @@ async fn main(spawner: Spawner) {
             interrupt::take!(DMA1_STREAM4),
             interrupt::take!(DMA1_STREAM2),
             interrupt::take!(UART4),
-            Config::default().baudrate(9600.bps()),
+            Config::default().baudrate(115200.bps()),
             clocks,
         )
     };
